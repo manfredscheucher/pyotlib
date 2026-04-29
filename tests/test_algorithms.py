@@ -1,0 +1,212 @@
+"""Unit tests for algorithms: polygon counting, crossings, unify, sub-OTs."""
+
+import pytest
+from pyotlib2.core.point_set import PointSet
+from pyotlib2.core.small_lambda import SmallLambda
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+def make_convex_position(n: int):
+    """Return n points on a convex polygon (regular n-gon on integer grid)."""
+    import math
+    R = 1000
+    pts = [(round(R * math.cos(2 * math.pi * i / n)),
+            round(R * math.sin(2 * math.pi * i / n)))
+           for i in range(n)]
+    return PointSet(n, pts)
+
+
+def make_6_points():
+    """Return 6 points in general position: 5 convex hull + 1 interior."""
+    return PointSet(6, [(0,0),(6,0),(9,3),(6,6),(0,6),(-3,3)])
+
+
+# ---------------------------------------------------------------------------
+# Polygon counting
+# ---------------------------------------------------------------------------
+
+class TestPolygonCount:
+    def test_empty_triangles_convex4(self):
+        """Convex quadrilateral has exactly 4 empty triangles (the 4 sub-triples)."""
+        from pyotlib2.algorithms.polygon_count import count_triangles
+        ps = make_convex_position(4)
+        bl = ps.to_big_lambda()
+        assert count_triangles(bl, empty_only=True) == 4
+
+    def test_convex_triangles_convex4(self):
+        """Convex quadrilateral has exactly 4 triangles."""
+        from pyotlib2.algorithms.polygon_count import count_triangles
+        ps = make_convex_position(4)
+        bl = ps.to_big_lambda()
+        assert count_triangles(bl, empty_only=False) == 4
+
+    def test_empty_kgons_convex_n(self):
+        """n points in convex position have exactly 1 empty n-gon."""
+        from pyotlib2.algorithms.polygon_count import count_polygons
+        for n in [4, 5, 6]:
+            ps = make_convex_position(n)
+            bl = ps.to_big_lambda()
+            assert count_polygons(bl, n, empty_only=True) == 1
+
+    def test_crossings_convex4(self):
+        """Convex quadrilateral has exactly 1 crossing pair (the two diagonals)."""
+        from pyotlib2.algorithms.polygon_count import count_crossings
+        ps = make_convex_position(4)
+        sl = ps.to_small_lambda(lazy=False)
+        assert count_crossings(sl) == 1
+
+
+# ---------------------------------------------------------------------------
+# Crossings
+# ---------------------------------------------------------------------------
+
+class TestCrossings:
+    def test_crossing_pairs_convex5(self):
+        """5 points in convex position have C(5,2)/2 = 5 crossing pairs."""
+        from pyotlib2.algorithms.crossings import crossing_pairs
+        ps = make_convex_position(5)
+        bl = ps.to_big_lambda()
+        pairs = crossing_pairs(bl)
+        assert len(pairs) == 5
+
+    def test_crossing_family_size_1(self):
+        """Any two crossing edges form a 2-crossing family."""
+        from pyotlib2.algorithms.crossings import enumerate_crossing_families
+        ps = make_convex_position(4)
+        bl = ps.to_big_lambda()
+        families = list(enumerate_crossing_families(bl, 2))
+        assert len(families) == 1  # only one crossing pair in a convex 4-gon
+
+
+# ---------------------------------------------------------------------------
+# Unify
+# ---------------------------------------------------------------------------
+
+class TestUnify:
+    def test_unify_removes_duplicates(self):
+        from pyotlib2.algorithms.unify import unify
+        ps = PointSet(4, [(0,0),(1,0),(1,1),(0,1)])
+        sl = ps.to_small_lambda(lazy=False)
+        ots = [sl, sl, sl.get_lex_min()]
+        unique = list(unify(ots))
+        assert len(unique) == 1
+
+    def test_unify_keeps_distinct(self):
+        from pyotlib2.algorithms.unify import unify
+        # n=5: all-convex vs 1-interior (non-degenerate: interior point off all diagonals)
+        sl_conv = make_convex_position(5).to_small_lambda(lazy=False)
+        sl_1in  = PointSet(5, [(0,0),(6,0),(6,6),(0,6),(1,2)]).to_small_lambda(lazy=False)
+        assert not PointSet(5, [(0,0),(6,0),(6,6),(0,6),(1,2)]).has_collinear_points()
+        # feed duplicates too
+        unique = list(unify([sl_conv, sl_1in, sl_conv, sl_1in]))
+        assert len(unique) == 2
+
+
+# ---------------------------------------------------------------------------
+# Sub-order types
+# ---------------------------------------------------------------------------
+
+class TestSubOrderTypes:
+    def test_reduce_count(self):
+        """n points in convex position have C(n,k) sub-OTs of size k."""
+        import math
+        n, k = 6, 4
+        ps = make_convex_position(n)
+        sl = ps.to_small_lambda(lazy=False)
+        subs = list(sl.reduce(k, lex_min=False))
+        assert len(subs) == math.comb(n, k)
+
+    def test_distinct_sub_ots_convex(self):
+        """6 points in convex position — all C(6,4)=15 sub-4-OTs are the same (convex 4-gon)."""
+        from pyotlib2.algorithms.sub_order_types import count_distinct_sub_ots
+        ps = make_convex_position(6)
+        sl = ps.to_small_lambda(lazy=False)
+        # All C(6,4) = 15 sub-4-sets are the unique convex 4-gon order type
+        assert count_distinct_sub_ots(sl, 4) == 1
+
+
+# ---------------------------------------------------------------------------
+# Otypes database integration tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requires_data
+class TestOtypesDB:
+    """Tests using the Aichholzer order-type database (otypes03.b08 .. otypes08.b08).
+
+    These tests are skipped if the data files are not present.
+    Data: http://www.ist.tugraz.at/staff/aichholzer/research/rp/triangulations/ordertypes/
+    """
+
+    def test_read_n6(self, otypes_path):
+        """DB for n=6 is readable and non-empty."""
+        from pyotlib2.io.readers import read_order_types
+        path = otypes_path(6)
+        ots = list(read_order_types(path, n=6))
+        assert len(ots) > 0
+
+    def test_all_n5_valid(self, otypes_path):
+        """All raw OTs for n=5 pass the abstract validity check."""
+        from pyotlib2.io.readers import read_order_types
+        path = otypes_path(5)
+        for ot in read_order_types(path, n=5):
+            assert ot._is_valid_abstract()
+
+    @pytest.mark.parametrize("n,expected", [
+        (3, 1), (4, 2), (5, 3), (6, 16), (7, 135), (8, 3315)
+    ])
+    def test_unify_lex_min_count(self, otypes_path, n, expected):
+        """After lex-min unification, exactly the known number of OTs remain.
+
+        The Aichholzer database already contains one representative per
+        lex-min equivalence class, so unify() should yield the same count
+        as the DB (no further merging) AND every OT should already be its
+        own lex-min representative.
+        """
+        from pyotlib2.io.readers import read_order_types
+        from pyotlib2.algorithms.unify import unify
+        path = otypes_path(n)
+        unique = list(unify(read_order_types(path, n=n)))
+        assert len(unique) == expected, f"n={n}: expected {expected}, got {len(unique)}"
+        # Each OT from the DB should already be lex-min (no relabeling needed)
+        for ot in unique:
+            assert ot == ot.get_lex_min(), f"n={n}: DB entry is not lex-min: {ot.to_string()}"
+
+    def test_empty_triangles_n6(self, otypes_path):
+        """All n=6 OTs have at least 4 empty triangles (Harborth lower bound for n≥5)."""
+        from pyotlib2.io.readers import read_order_types
+        from pyotlib2.algorithms.unify import unify
+        from pyotlib2.algorithms.polygon_count import count_triangles
+        path = otypes_path(6)
+        for ot in unify(read_order_types(path, n=6)):
+            bl = ot.to_big_lambda()
+            cnt = count_triangles(bl, empty_only=True)
+            assert cnt >= 4, f"Only {cnt} empty triangles"
+
+
+@pytest.mark.requires_data
+class TestProjectiveClasses:
+    """Projective equivalence classes = rank-3 isomorphism classes of nondegenerate OMs.
+
+    See: https://finschi.com/math/om/?p=catom&filter=nondeg
+    Expected counts: n=5 → 1, n=6 → 4, n=7 → 11, n=8 → 135
+    """
+
+    @pytest.mark.parametrize("n,expected", [
+        (5, 1), (6, 4), (7, 11), (8, 135)
+    ])
+    def test_projective_class_count(self, otypes_path, n, expected):
+        from pyotlib2.io.readers import read_order_types
+        from pyotlib2.algorithms.unify import unify
+        from pyotlib2.algorithms.projective_class import ProjectiveClass
+        path = otypes_path(n)
+        ots = list(unify(read_order_types(path, n=n)))
+        representers = set()
+        for ot in ots:
+            pc = ProjectiveClass(ot)
+            representers.add(pc.representer.to_string())
+        assert len(representers) == expected, (
+            f"n={n}: expected {expected} projective classes, got {len(representers)}"
+        )

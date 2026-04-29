@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyotlib2"
+version = "2.0.0"
+description = "Python Order Type Library — combinatorial geometry on abstract order types"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Manfred Scheucher" }]
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+sat = ["python-sat"]           # for SAT-based extension (ErdosSzekeres)
+lp = []                        # GLPK via system package (glpsol binary)
+scipy = ["scipy"]              # nonlinear realization
+gurobi = ["gurobipy"]          # MILP realization
+networkx = ["networkx"]        # crossing family cliques
+dev = ["pytest", "pytest-cov"]
+
+[project.scripts]
+pyotlib2 = "pyotlib2.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyotlib2*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
