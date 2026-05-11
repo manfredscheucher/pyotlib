@@ -206,4 +206,7 @@ def count_convex_kgons(sl: SmallLambda, k: int) -> int:
 
 
 def count_empty_kgons(sl: SmallLambda, k: int) -> int:
-    return count_polygons(sl.to_big_lambda(), k, empty_only=True)
+    # enumerate_polygons requires natural labeling (point 0 on hull, angular order).
+    # Apply the first natural relabeling before converting to BigLambda.
+    lab = sl.get_natural_labeling(sl.get_extremal_points()[0])
+    return count_polygons(sl.relabeled(lab).to_big_lambda(), k, empty_only=True)

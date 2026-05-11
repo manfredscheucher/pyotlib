@@ -13,12 +13,13 @@ requires-python = ">=3.9"
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-sat = ["python-sat"]           # for SAT-based extension (ErdosSzekeres)
+sat = ["python-sat"]           # for SAT-based OT extension (extend-abstract), includes CaDiCaL
 lp = []                        # GLPK via system package (glpsol binary)
 scipy = ["scipy"]              # nonlinear realization
 gurobi = ["gurobipy"]          # MILP realization
 networkx = ["networkx"]        # crossing family cliques
 dev = ["pytest", "pytest-cov"]
+all = ["python-sat", "scipy"]  # all optional Python deps
 
 [project.scripts]
 pyotlib2 = "pyotlib2.cli.main:main"

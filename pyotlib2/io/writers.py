@@ -1,44 +1,113 @@
-"""File writers for all pyotlib2 order-type formats."""
+"""File writers for all pyotlib2 order-type formats.
+
+See ``pyotlib2.io.readers`` for the full format documentation.
+"""
 
 from __future__ import annotations
 import json
+import math
 import struct
+from itertools import combinations
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
+
+import numpy as np
 
 from pyotlib2.core.small_lambda import SmallLambda
 from pyotlib2.core.utils import binomial
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def write_order_types(
     ots: Iterable[SmallLambda],
     filepath: str | Path,
     fmt: Optional[str] = None,
 ) -> int:
-    """Write order types to filepath.  Returns count written."""
+    """Write order types to *filepath*.  Returns the number of OTs written.
+
+    Parameters
+    ----------
+    ots:
+        Iterable of SmallLambda objects.
+    filepath:
+        Destination path.
+    fmt:
+        Format string (see ``pyotlib2.io.readers`` module docstring).
+        If ``None``, inferred from the file extension.
+    """
     filepath = Path(filepath)
     if fmt is None:
-        fmt = filepath.suffix.lstrip(".")
+        fmt = filepath.suffix.lstrip(".").lower()
 
-    byte_map = {"b08": 1, "b16": 2, "b32": 4, "b64": 8}
-    if fmt in byte_map:
-        return _write_point_binary(ots, filepath, bytes_per_coord=byte_map[fmt])
+    # legacy aliases
+    if fmt == "b08":
+        fmt = "pb08"
+    elif fmt == "b16":
+        fmt = "pb16"
+    if fmt == "txt":
+        fmt = "slt"
 
-    fmt = fmt.lower()
-    if fmt in ("lt", "txt", "lmd"):
-        return _write_small_lambda_text(ots, filepath)
-    elif fmt == "blt":
-        return _write_big_lambda_text(ots, filepath)
-    elif fmt in ("asc", "psz"):
-        return _write_point_text_asc(ots, filepath)
-    elif fmt == "json":
-        return _write_point_text_json(ots, filepath)
-    else:
-        raise ValueError(f"Unknown format: {fmt!r}")
+    dispatch = {
+        "slt":    lambda: _write_small_lambda_text(ots, filepath),
+        "slb04":  lambda: _write_slb(ots, filepath, bits=4, compressed=False),
+        "slb08":  lambda: _write_slb(ots, filepath, bits=8, compressed=False),
+        "slb16":  lambda: _write_slb(ots, filepath, bits=16, compressed=False),
+        "slbc04": lambda: _write_slb(ots, filepath, bits=4, compressed=True),
+        "slbc08": lambda: _write_slb(ots, filepath, bits=8, compressed=True),
+        "slbc16": lambda: _write_slb(ots, filepath, bits=16, compressed=True),
+        "blt":    lambda: _write_big_lambda_text(ots, filepath),
+        "blb":    lambda: _write_blb(ots, filepath, compressed=False),
+        "blbc":   lambda: _write_blb(ots, filepath, compressed=True),
+        "fmt":    lambda: _write_felsner_text(ots, filepath),
+        "fmb":    lambda: _write_felsner_binary(ots, filepath),
+        "pb04":   lambda: _write_point_binary(ots, filepath, bits=4),
+        "pb08":   lambda: _write_point_binary(ots, filepath, bits=8),
+        "pb16":   lambda: _write_point_binary(ots, filepath, bits=16),
+        "pb32":   lambda: _write_point_binary(ots, filepath, bits=32),
+        "asc":    lambda: _write_point_text_asc(ots, filepath),
+        "psz":    lambda: _write_point_text_asc(ots, filepath),
+        "json":   lambda: _write_point_text_json(ots, filepath),
+    }
+    if fmt not in dispatch:
+        raise ValueError(
+            f"Unknown format {fmt!r}.  Supported: "
+            + ", ".join(sorted(dispatch))
+        )
+    return dispatch[fmt]()
 
 
-from typing import Optional
+# ---------------------------------------------------------------------------
+# Bit-packing helpers
+# ---------------------------------------------------------------------------
 
+def _pack_bits(bits: list[int]) -> bytes:
+    """Pack a list of 0/1 ints MSB-first into bytes, zero-padded."""
+    n_bytes = math.ceil(len(bits) / 8)
+    result = bytearray(n_bytes)
+    for k, b in enumerate(bits):
+        if b:
+            result[k // 8] |= 1 << (7 - k % 8)
+    return bytes(result)
+
+
+def _assert_natural(sl: SmallLambda, fmt: str) -> None:
+    L = sl.get_l()
+    n = sl.n
+    for j in range(1, n):
+        if int(L[0, j]) != j - 1:
+            raise ValueError(
+                f"{fmt}: order type is not in natural labeling "
+                f"(L[0,{j}]={int(L[0,j])}, expected {j-1}). "
+                f"Use sl.relabeled(sl.get_natural_labeling(p0)) first."
+            )
+
+
+# ---------------------------------------------------------------------------
+# SmallLambda text
+# ---------------------------------------------------------------------------
 
 def _write_small_lambda_text(ots: Iterable[SmallLambda], filepath: Path) -> int:
     cnt = 0
@@ -50,6 +119,62 @@ def _write_small_lambda_text(ots: Iterable[SmallLambda], filepath: Path) -> int:
     return cnt
 
 
+# ---------------------------------------------------------------------------
+# SmallLambda binary (slb / slbc)
+# ---------------------------------------------------------------------------
+
+def _write_slb(
+    ots: Iterable[SmallLambda],
+    filepath: Path,
+    bits: int,
+    compressed: bool,
+) -> int:
+    fmt_name = f"slb{'c' if compressed else ''}{bits:02d}"
+    cnt = 0
+    with open(filepath, "wb") as f:
+        for ot in ots:
+            L = ot.get_l()
+            n = ot.n
+            if bits == 4:
+                assert n <= 16, f"{fmt_name}: n={n} > 16"
+            elif bits == 8:
+                assert n <= 256, f"{fmt_name}: n={n} > 256"
+            elif bits == 16:
+                assert n <= 65536, f"{fmt_name}: n={n} > 65536"
+            if compressed:
+                _assert_natural(ot, fmt_name)
+            f.write(_encode_slb(n, L, bits, compressed))
+            cnt += 1
+    return cnt
+
+
+def _encode_slb(n: int, L: np.ndarray, bits: int, compressed: bool) -> bytes:
+    if compressed:
+        # upper triangle with both indices >= 1
+        entries = [int(L[i, j]) for i in range(1, n) for j in range(i + 1, n)]
+    else:
+        entries = [int(L[i, j]) for i in range(n) for j in range(n)]
+
+    if bits == 4:
+        # pack two nibbles per byte, MSB first
+        n_bytes = math.ceil(len(entries) * 4 / 8)
+        result = bytearray(n_bytes)
+        for k, v in enumerate(entries):
+            if k % 2 == 0:
+                result[k // 2] |= (v & 0xF) << 4
+            else:
+                result[k // 2] |= v & 0xF
+        return bytes(result)
+    elif bits == 8:
+        return bytes(entries)
+    else:  # 16
+        return b"".join(struct.pack("<H", v) for v in entries)
+
+
+# ---------------------------------------------------------------------------
+# BigLambda text
+# ---------------------------------------------------------------------------
+
 def _write_big_lambda_text(ots: Iterable[SmallLambda], filepath: Path) -> int:
     cnt = 0
     with open(filepath, "w") as f:
@@ -59,23 +184,100 @@ def _write_big_lambda_text(ots: Iterable[SmallLambda], filepath: Path) -> int:
     return cnt
 
 
-_STRUCT_FMT = {1: "<B", 2: "<H", 4: "<I", 8: "<Q"}
+# ---------------------------------------------------------------------------
+# BigLambda binary (blb / blbc)
+# ---------------------------------------------------------------------------
 
-
-def _write_point_binary(
-    ots: Iterable[SmallLambda], filepath: Path, bytes_per_coord: int
+def _write_blb(
+    ots: Iterable[SmallLambda],
+    filepath: Path,
+    compressed: bool,
 ) -> int:
-    fmt = _STRUCT_FMT[bytes_per_coord]
+    fmt_name = "blbc" if compressed else "blb"
     cnt = 0
     with open(filepath, "wb") as f:
         for ot in ots:
-            assert ot.realization is not None, "binary output requires a realization"
-            for x, y in ot.realization:
-                f.write(struct.pack(fmt, int(x)))
-                f.write(struct.pack(fmt, int(y)))
+            if compressed:
+                _assert_natural(ot, fmt_name)
+            o = ot.to_big_lambda().o
+            n = ot.n
+            if compressed:
+                triples = list(combinations(range(1, n), 3))
+            else:
+                triples = list(combinations(range(n), 3))
+            bits = [1 if int(o[a, b, c]) > 0 else 0 for a, b, c in triples]
+            f.write(_pack_bits(bits))
             cnt += 1
     return cnt
 
+
+# ---------------------------------------------------------------------------
+# FelsnerMatrix text / binary
+# ---------------------------------------------------------------------------
+
+def _write_felsner_text(ots: Iterable[SmallLambda], filepath: Path) -> int:
+    from pyotlib2.core.felsner_matrix import FelsnerMatrix
+    cnt = 0
+    with open(filepath, "w") as f:
+        for ot in ots:
+            fm = FelsnerMatrix.from_small_lambda(ot)
+            f.write(fm.to_fmt_string())
+            f.write("\n")
+            cnt += 1
+    return cnt
+
+
+def _write_felsner_binary(ots: Iterable[SmallLambda], filepath: Path) -> int:
+    from pyotlib2.core.felsner_matrix import FelsnerMatrix
+    cnt = 0
+    with open(filepath, "wb") as f:
+        for ot in ots:
+            fm = FelsnerMatrix.from_small_lambda(ot)
+            f.write(fm.to_fmb_bytes())
+            cnt += 1
+    return cnt
+
+
+# ---------------------------------------------------------------------------
+# Point set binary (pb04 / pb08 / pb16 / pb32)
+# ---------------------------------------------------------------------------
+
+def _write_point_binary(
+    ots: Iterable[SmallLambda],
+    filepath: Path,
+    bits: int,
+) -> int:
+    fmt_name = f"pb{bits:02d}"
+    cnt = 0
+    with open(filepath, "wb") as f:
+        for ot in ots:
+            assert ot.realization is not None, (
+                f"{fmt_name}: realization required for point binary output"
+            )
+            if bits == 4:
+                coords = []
+                for x, y in ot.realization:
+                    coords += [int(x), int(y)]
+                n_bytes = math.ceil(len(coords) * 4 / 8)
+                result = bytearray(n_bytes)
+                for k, v in enumerate(coords):
+                    if k % 2 == 0:
+                        result[k // 2] |= (v & 0xF) << 4
+                    else:
+                        result[k // 2] |= v & 0xF
+                f.write(bytes(result))
+            else:
+                struct_fmt = {8: "<B", 16: "<H", 32: "<I"}[bits]
+                for x, y in ot.realization:
+                    f.write(struct.pack(struct_fmt, int(x)))
+                    f.write(struct.pack(struct_fmt, int(y)))
+            cnt += 1
+    return cnt
+
+
+# ---------------------------------------------------------------------------
+# ASCII point set text
+# ---------------------------------------------------------------------------
 
 def _write_point_text_asc(ots: Iterable[SmallLambda], filepath: Path) -> int:
     cnt = 0
@@ -88,6 +290,10 @@ def _write_point_text_asc(ots: Iterable[SmallLambda], filepath: Path) -> int:
             cnt += 1
     return cnt
 
+
+# ---------------------------------------------------------------------------
+# JSON point set
+# ---------------------------------------------------------------------------
 
 def _write_point_text_json(ots: Iterable[SmallLambda], filepath: Path) -> int:
     cnt = 0

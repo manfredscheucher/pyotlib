@@ -149,6 +149,18 @@ class BigLambda:
             R = point_rotation.rotate_by_flip(R, F)
         return BigLambda(self.n, new_o, realization=R, coloring=self.coloring)
 
+    def flip_triple(self, a: int, b: int, c: int) -> "BigLambda":
+        """Return a new BigLambda with orientation of triple (a,b,c) flipped.
+
+        Flips o[a,b,c] and all its antisymmetric / cyclic copies.
+        This changes the order type (not a coordinate transform).
+        The result may or may not be a valid chirotope.
+        """
+        new_o = self.o.copy()
+        new_o[a, b, c] = new_o[b, c, a] = new_o[c, a, b] = -self.o[a, b, c]
+        new_o[a, c, b] = new_o[b, a, c] = new_o[c, b, a] = -self.o[a, c, b]
+        return BigLambda(self.n, new_o)
+
     @cached_property
     def small_lambda(self) -> "SmallLambda":
         """SmallLambda representation (cached)."""

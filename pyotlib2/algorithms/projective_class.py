@@ -1,8 +1,19 @@
 """Projective equivalence classes of order types.
 
 Two order types are in the same projective class if one can be obtained from
-the other by a sequence of reflections of extremal points (flips).  We explore
-the flip graph via BFS.
+the other by a sequence of reflections of extremal points (flips on the
+convex hull).  We enumerate the class via BFS on the flip graph.
+
+Projective classes correspond exactly to isomorphism classes of
+non-degenerate rank-3 oriented matroids (abstract order types in the
+projective sense).  Catalogue: https://finschi.com/math/om/?p=catom&filter=nondeg
+
+Known counts (all realizable except where noted):
+  n=5 →     1
+  n=6 →     4
+  n=7 →    11
+  n=8 →   135
+  n=9 →  4381  (4380 realizable + 1 non-realizable)
 """
 
 from __future__ import annotations

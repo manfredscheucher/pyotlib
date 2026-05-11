@@ -50,10 +50,21 @@ class TestEmptyTriangles:
 
 
 class TestProjectiveClasses:
-    """Projective equivalence classes = rank-3 isomorphism classes of nondegenerate OMs.
+    """Projective equivalence classes of order types.
 
-    See: https://finschi.com/math/om/?p=catom&filter=nondeg
-    Expected counts: n=5 → 1, n=6 → 4, n=7 → 11, n=8 → 135
+    Projective classes correspond exactly to isomorphism classes of
+    non-degenerate rank-3 oriented matroids (abstract order types in the
+    projective sense).  Two order types are in the same class iff one can
+    be obtained from the other by a sequence of extremal-point reflections
+    (flips on the flip graph).
+
+    Catalogue: https://finschi.com/math/om/?p=catom&filter=nondeg
+    Expected counts (all realizable):
+      n=5 →     1
+      n=6 →     4
+      n=7 →    11
+      n=8 →   135
+      n=9 →  4381  (4380 realizable + 1 non-realizable)
     """
 
     @pytest.mark.parametrize("n,expected", [
@@ -69,4 +80,21 @@ class TestProjectiveClasses:
             representers.add(pc.representer.to_string())
         assert len(representers) == expected, (
             f"n={n}: expected {expected} projective classes, got {len(representers)}"
+        )
+
+    @pytest.mark.slow
+    def test_projective_class_count_n9(self, otypes_path):
+        """n=9 has 4381 projective classes (4380 realizable + 1 non-realizable).
+
+        Marked slow — takes several minutes.  Run with: pytest -m slow
+        """
+        from pyotlib2.algorithms.projective_class import ProjectiveClass
+        path = otypes_path(9)
+        ots = list(unify(read_order_types(path, n=9)))
+        representers = set()
+        for ot in ots:
+            pc = ProjectiveClass(ot)
+            representers.add(pc.representer.to_string())
+        assert len(representers) == 4381, (
+            f"n=9: expected 4381 projective classes, got {len(representers)}"
         )

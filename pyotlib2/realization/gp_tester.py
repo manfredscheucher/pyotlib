@@ -1,9 +1,12 @@
 """Grassmann-Plücker realizability test via GLPK linear programming.
 
 Generates an LP that is feasible iff the order type is realizable.
+A solution with myEps > 0 witnesses realizability (unbounded); if the
+LP is infeasible (GLPK primal+dual status both 2), the OT is non-realizable.
+
 Requires the ``glpsol`` binary (GLPK package) to be on PATH.
 
-Reference: Hirzebruch-Kummer / Grassmann-Plücker inequalities.
+Reference: Grassmann-Plücker relations for rank-3 oriented matroids.
 """
 
 from __future__ import annotations
@@ -20,11 +23,19 @@ from pyotlib2.realization.base import RealizationTester, Undecided
 
 
 class GPRealizationTester(RealizationTester):
-    """Tests realizability via a linear program solved with GLPK.
+    """Tests realizability via a Grassmann-Plücker LP solved with GLPK.
 
-    The LP encodes Grassmann-Plücker constraints: for each 5-point
-    sub-configuration, at least one orientation must be positive.
-    Maximising a slack variable ε detects infeasibility.
+    The LP maximises a slack variable myEps subject to:
+      - myEps >= 0
+      - o_abc >= 0  for all triples (a,b,c) with a<b<c
+      - For each 5-tuple (a,b,c,d,e) with b<c,d,e and the right sign pattern,
+        two GP constraints of the form:
+          o_abc + o_ade - o_abd - o_ace + myEps <= 0
+          o_abe + o_acd - o_abd - o_ace + myEps <= 0
+
+    If the optimum myEps > 0 the LP is unbounded → realizable.
+    If the LP is infeasible → non-realizable (GLPK primal+dual status = 2).
+    Otherwise → undecided.
     """
 
     def __init__(
@@ -41,67 +52,83 @@ class GPRealizationTester(RealizationTester):
 
     def _test(self, ot: SmallLambda) -> bool:
         with tempfile.TemporaryDirectory() as tmpdir:
-            lp_path = os.path.join(tmpdir, "ot.lp")
+            lp_path  = os.path.join(tmpdir, "ot.lp")
             sol_path = os.path.join(tmpdir, "ot.sol")
             self._write_lp(ot, lp_path)
-            feasible = self._solve(lp_path, sol_path)
-        return feasible
+            return self._solve(lp_path, sol_path)
 
     # ------------------------------------------------------------------
-    # LP generation
+    # LP generation  (ported from old pyotlib GPRealizationTester)
     # ------------------------------------------------------------------
 
     def _write_lp(self, ot: SmallLambda, path: str) -> None:
         n = ot.n
-        bl = ot.to_big_lambda()
-        o_arr = bl.o
+        o_arr = ot.to_big_lambda().o
 
         def var(i, j, k):
             a, b, c = sorted([i, j, k])
             return f"o_{a}_{b}_{c}"
 
-        lines = ["/* Grassmann-Plucker LP for realizability */", "maximize", "  obj: eps", "subject to"]
+        lines = [
+            "/* Grassmann-Plucker LP for realizability */",
+            "Maximize",
+            " obj: 1 myEps",
+            "Subject To",
+            " pos_myeps: myEps >= 0",
+        ]
 
-        # For each 5-tuple, add Grassmann-Plucker inequality
-        for pts in combinations(range(n), 5):
-            i, j, k, l, m = pts
-            # GP relation: o(i,j,k)*o(i,l,m) - o(i,j,l)*o(i,k,m) + o(i,j,m)*o(i,k,l) = 0
-            # Linearised: each sign pattern must be consistent
-            for perm in [(i, j, k, l, m)]:
-                a, b, c, d, e = perm
-                # o(a,b,c) and o(a,d,e) have same sign, or at least one flipped
-                s1 = o_arr[a][b][c]
-                s2 = o_arr[a][d][e]
-                if s1 * s2 < 0:
-                    # Grassmann-Plucker violation detected abstractly
-                    # Add infeasibility witness: eps <= -1
-                    lines.append(f"  gp_{a}_{b}_{c}_{d}_{e}: eps <= -1")
-                    break
+        # positivity constraints for each triple
+        for a, b, c in combinations(range(n), 3):
+            lines.append(f" pos_{a}_{b}_{c}: {var(a,b,c)} >= 0")
 
-        # Orientation constraints: each variable fixed by the chirotope
-        lines.append("bounds")
-        lines.append("  eps >= -1e6")
-        lines.append("  eps <= 1")
-        lines.append("end")
+        # Grassmann-Plucker constraints
+        # For each (a,b) and each permutation (c,d,e) of {b+1..n-1}:
+        # if all three products o[a,b,c]*o[a,d,e], o[a,b,d]*o[a,c,e], o[a,b,e]*o[a,c,d] > 0
+        # then add two GP inequalities.
+        ct = 0
+        for a, b in permutations(range(n), 2):
+            for c, d, e in permutations(range(b + 1, n), 3):
+                if (    o_arr[a, b, c] * o_arr[a, d, e] > 0
+                    and o_arr[a, b, d] * o_arr[a, c, e] > 0
+                    and o_arr[a, b, e] * o_arr[a, c, d] > 0):
+                    ct += 1
+                    lines.append(
+                        f" c{2*ct}: {var(a,b,c)} +{var(a,d,e)} -{var(a,b,d)} -{var(a,c,e)} + myEps <= 0"
+                    )
+                    lines.append(
+                        f" c{2*ct+1}: {var(a,b,e)} +{var(a,c,d)} -{var(a,b,d)} -{var(a,c,e)} + myEps <= 0"
+                    )
+
+        assert ct == 5 * binomial(n, 5), f"expected {5*binomial(n,5)} GP constraints, got {ct}"
+
+        lines.append("End")
 
         with open(path, "w") as f:
             f.write("\n".join(lines) + "\n")
 
+    # ------------------------------------------------------------------
+    # Solve and parse
+    # ------------------------------------------------------------------
+
     def _solve(self, lp_path: str, sol_path: str) -> bool:
-        cmd = ["glpsol", "--lp", lp_path, "-o", sol_path]
+        cmd = ["glpsol", "--lp", lp_path, "--write", sol_path, "--xcheck"]
         if self.use_dual_simplex:
             cmd.append("--dual")
         if self.time_limit > 0:
             cmd += ["--tmlim", str(self.time_limit)]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        # Parse solution status
+
+        subprocess.run(cmd, capture_output=True)
+
+        # Parse GLPK solution file: line 2 is "statusP statusD opt_value"
+        # statusP == 2 and statusD == 2  →  infeasible  →  non-realizable
         try:
             with open(sol_path) as f:
-                content = f.read()
-            if "INFEASIBLE" in content:
-                return False
-            if "OPTIMAL" in content or "FEASIBLE" in content:
-                return True
-        except FileNotFoundError:
+                f.readline()
+                line2 = f.readline()
+            status_p, status_d, *_ = line2.split()
+            if status_p == "2" and status_d == "2":
+                return False  # infeasible → non-realizable
+        except (FileNotFoundError, ValueError):
             pass
-        raise Undecided("GLPK did not produce a solution")
+
+        raise Undecided("GLPK did not produce a conclusive result")
