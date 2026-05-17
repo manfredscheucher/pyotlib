@@ -9,10 +9,16 @@ objects — no concrete coordinates are needed for most computations.
 ## Installation
 
 ```bash
-pip install -e ".[dev]"             # development install with test dependencies
-pip install -e ".[scipy]"           # add scipy for nonlinear realization
-pip install -e ".[sat]"             # add SAT solver for extension enumeration
-pip install -e ".[dev,sat,scipy]"   # everything
+pip install pyotlib2                    # core: numpy only
+pip install 'pyotlib2[vis]'             # + interactive editor (PySide6) + plots (matplotlib)
+pip install 'pyotlib2[sat]'             # + SAT-based OT extension (python-sat/CaDiCaL)
+pip install 'pyotlib2[scipy]'           # + scipy realization & beautify-coords
+pip install 'pyotlib2[all]'             # everything above
+```
+
+For development:
+```bash
+pip install -e ".[all,dev]"
 ```
 
 Requires Python ≥ 3.10, numpy ≥ 1.24.

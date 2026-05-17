@@ -39,7 +39,8 @@ Extension:
     extend-random     Random n+1 extensions by point placement
 
 Visualization:
-    plot              Visualize order types as point set drawings
+    plot              Visualize order types as point set drawings (matplotlib)
+    editor            Interactive point set editor (PySide6)
 
 All commands can also be used as Python functions:
     from pyotlib2.cli.commands import unify_ot, lex_min_ot, ...

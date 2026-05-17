@@ -71,6 +71,7 @@ def register_all(sub) -> None:
     _register_extend_random(sub)
     # Visualization
     _register_plot(sub)
+    _register_editor(sub)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +542,7 @@ def properties(
       kgons-K              number of convex K-gons
       hull                 number of convex hull points
       onion-layers         number of convex layers
+      triangulations       number of triangulations
     """
     from pyotlib2.algorithms.polygon_count import (
         count_polygons, count_crossings, count_triangles
@@ -563,6 +565,9 @@ def properties(
                 values[prop] = len(ot.get_extremal_points())
             elif prop == "onion-layers":
                 values[prop] = len(bl.get_onion())
+            elif prop == "triangulations":
+                from pyotlib2.algorithms.triangulations import count_triangulations
+                values[prop] = count_triangulations(ot)
             else:
                 raise ValueError(f"Unknown property: {prop!r}")
         yield ot, values
@@ -581,14 +586,15 @@ def _register_properties(sub) -> None:
             "  empty-kgons-K   number of empty convex K-gons (e.g. empty-kgons-5)\n"
             "  kgons-K         number of convex K-gons\n"
             "  hull            number of convex hull points\n"
-            "  onion-layers    number of convex layers"
+            "  onion-layers    number of convex layers\n"
+            "  triangulations  number of triangulations"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_input_args(p)
     p.add_argument("props", nargs="+", metavar="PROPERTY",
                    help="Properties: crossings, empty-triangles, empty-kgons-K, "
-                        "kgons-K, hull, onion-layers")
+                        "kgons-K, hull, onion-layers, triangulations")
     p.set_defaults(func=_cmd_properties)
 
 
@@ -1581,9 +1587,15 @@ def plot_ot(
     crossings:  highlight crossing pairs of segments (implies edges=True)
     point_size: scatter marker size
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    from matplotlib.collections import LineCollection
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from matplotlib.collections import LineCollection
+    except ImportError:
+        raise RuntimeError(
+            "matplotlib is required for plotting.\n"
+            "Install with:  pip install 'pyotlib2[vis]'"
+        )
 
     # --- get coordinates ---
     pts = ot.realization
@@ -1695,7 +1707,13 @@ def plot(
     point_size: scatter marker size
     dpi:        output resolution (for raster formats)
     """
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise RuntimeError(
+            "matplotlib is required for plotting.\n"
+            "Install with:  pip install 'pyotlib2[vis]'"
+        )
     import math
 
     ot_list = list(ots)
@@ -1787,6 +1805,45 @@ def _cmd_plot(args) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# editor  — interactive PySide6 point set editor
+# ---------------------------------------------------------------------------
+
+def _register_editor(sub) -> None:
+    p = sub.add_parser(
+        "editor",
+        help="Interactive point set editor (requires PySide6)",
+        description=(
+            "Open an interactive editor to drag points and explore order types.  "
+            "Requires PySide6:  pip install -e '.[vis]'  "
+            "With a file argument, loads the first order type from that file "
+            "(must have concrete coordinates: b08, b16, asc, json).  "
+            "Without a file, opens a default 6-point convex configuration."
+        ),
+    )
+    p.add_argument("file", nargs="?", default=None,
+                   help="Input file with point coordinates (optional)")
+    p.add_argument("-n", dest="n", type=int, default=None,
+                   help="Number of points (required for binary formats)")
+    p.add_argument("--fmt", default=None,
+                   help="File format (auto-detected from extension if omitted)")
+    p.set_defaults(func=_cmd_editor)
+
+
+def _cmd_editor(args) -> None:
+    try:
+        from pyotlib2.vis.editor.app import run_editor
+    except ImportError:
+        import sys
+        print(
+            "Error: PySide6 is required for the editor.\n"
+            "Install with:  pip install -e '.[vis]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    run_editor(args.file, n=args.n, fmt=args.fmt)
+
+
 # ===========================================================================
 # Shared helper: property counting by name
 # ===========================================================================
@@ -1804,21 +1861,22 @@ _PROP_HELP = (
 def _count_property(ot: SmallLambda, prop: str) -> int:
     """Count a single named property on an order type."""
     from pyotlib2.algorithms.polygon_count import (
-        count_polygons, count_crossings, count_triangles
+        count_polygons, count_crossings, count_empty_kgons,
     )
-    bl = ot.to_big_lambda()
     if prop == "crossings":
         return count_crossings(ot)
-    elif prop == "empty-triangles":
-        return count_triangles(bl, empty_only=True)
-    elif prop.startswith("empty-kgons-"):
-        return count_polygons(bl, int(prop.split("-")[-1]), empty_only=True)
-    elif prop.startswith("kgons-"):
-        return count_polygons(bl, int(prop.split("-")[-1]), empty_only=False)
     elif prop == "hull":
         return len(ot.get_extremal_points())
     elif prop == "onion-layers":
-        return len(bl.get_onion())
+        return len(ot.big_lambda.get_onion())
+    elif prop == "empty-triangles":
+        return count_empty_kgons(ot, k=3)
+    elif prop.startswith("empty-kgons-"):
+        k = int(prop.removeprefix("empty-kgons-"))
+        return count_empty_kgons(ot, k)
+    elif prop.startswith("kgons-"):
+        k = int(prop.removeprefix("kgons-"))
+        return count_polygons(ot.big_lambda, k, empty_only=False)
     else:
         raise ValueError(f"Unknown property: {prop!r}. Available:\n{_PROP_HELP}")
 
