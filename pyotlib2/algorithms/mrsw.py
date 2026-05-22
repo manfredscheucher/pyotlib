@@ -74,7 +74,7 @@ def _count_kholes_anchor_s(o: np.ndarray, s: int, k: int) -> int:
       - q ∈ H_{s,p}: o[s, p, q] == +1
       - r ∈ H_{p,q}: o[p, q, r] == +1
       - r ∈ H_{s,q}: o[s, q, r] == +1
-      - triangle (s, p, q) must be empty of points from 0..s-1 \ {p,q}
+      - triangle (s, p, q) must be empty of points from 0..s-1 \\ {p,q}
     """
     m = s  # points available: 0..s-1
     if m < k - 1:
