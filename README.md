@@ -19,7 +19,12 @@ pip install 'pyotlib2[all]'             # everything above
 For development:
 ```bash
 pip install -e ".[all,dev]"
+bash scripts/install-hooks.sh   # installs a pre-commit hook that runs CI tests in Docker
 ```
+
+The pre-commit hook builds a `python:3.12-slim` Docker image (identical to GitHub CI) and runs
+the test suite before every commit. Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+Skip once with `git commit --no-verify`.
 
 Requires Python ≥ 3.10, numpy ≥ 1.24.
 
