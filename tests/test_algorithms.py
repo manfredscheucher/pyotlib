@@ -80,6 +80,37 @@ class TestCrossings:
         families = list(enumerate_crossing_families(bl, 2))
         assert len(families) == 1  # only one crossing pair in a convex 4-gon
 
+    def test_2families_equals_crossings(self):
+        """#2-crossing-families == crossing number == #convex-4-gons, for all algos."""
+        from pyotlib2.algorithms.crossings import count_crossing_families
+        from pyotlib2.algorithms.polygon_count import count_crossings, count_polygons
+        for n in [4, 5, 6, 7]:
+            ps = make_convex_position(n)
+            bl = ps.to_big_lambda()
+            sl = ps.to_small_lambda(lazy=False)
+            cr = count_crossings(sl)
+            c4 = count_polygons(bl, k=4, empty_only=False)
+            assert cr == c4, f"n={n}: crossings={cr} != 4-gons={c4}"
+            for algo in ("pruned", "basic"):
+                cf2 = count_crossing_families(bl, k=2, algo=algo)
+                assert cf2 == cr, f"n={n} algo={algo}: 2-families={cf2} != crossings={cr}"
+
+    def test_2families_equals_crossings_otdb(self):
+        """#2-crossing-families == crossing number for all n=6 OTDB order types."""
+        import os
+        from pyotlib2.io.readers import read_order_types
+        from pyotlib2.algorithms.crossings import count_crossing_families
+        from pyotlib2.algorithms.polygon_count import count_crossings, count_polygons
+        path = os.path.join(os.path.dirname(__file__), "otdb", "otypes", "otypes06.b08")
+        for sl in read_order_types(path, n=6):
+            bl = sl.to_big_lambda()
+            cr = count_crossings(sl)
+            c4 = count_polygons(bl, k=4, empty_only=False)
+            assert cr == c4
+            for algo in ("pruned", "basic"):
+                cf2 = count_crossing_families(bl, k=2, algo=algo)
+                assert cf2 == cr, f"algo={algo}: 2-families={cf2} != crossings={cr}"
+
 
 # ---------------------------------------------------------------------------
 # Unify
