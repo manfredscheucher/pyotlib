@@ -1261,6 +1261,96 @@ class EditorWindow(QMainWindow):
         act_next.triggered.connect(self._on_next)
         file_menu.addAction(act_next)
 
+        # Help menu
+        help_menu = mb.addMenu("&Help")
+        act_help = QAction("Features && Help…", self)
+        act_help.setShortcut(QKeySequence("F1"))
+        act_help.triggered.connect(self._show_help)
+        help_menu.addAction(act_help)
+        act_about = QAction("About pyotlib2", self)
+        act_about.triggered.connect(self._show_about)
+        help_menu.addAction(act_about)
+
+    # ------------------------------------------------------------------
+    # Help
+    # ------------------------------------------------------------------
+
+    def _show_help(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("pyotlib2 — Features & Help")
+        dlg.resize(620, 520)
+        layout = QVBoxLayout(dlg)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setHtml(_HELP_HTML)
+        layout.addWidget(text)
+        dlg.exec()
+
+    def _show_about(self):
+        QMessageBox.about(
+            self,
+            "About pyotlib2",
+            "<b>pyotlib2</b> — Python Order Type Library 2<br><br>"
+            "Interactive exploration and computation of abstract order types, "
+            "projective classes, and point set properties.",
+        )
+
+
+_HELP_HTML = """\
+<h2>Editor Controls</h2>
+<ul>
+  <li><b>Left click</b> — select/move point</li>
+  <li><b>Double click</b> — add new point</li>
+  <li><b>Right click</b> — delete point</li>
+  <li><b>Space + drag</b> — pan view</li>
+  <li><b>Mouse wheel / +/-</b> — zoom in/out</li>
+  <li><b>Ctrl+0</b> — fit to window</li>
+  <li><b>Ctrl+S</b> — save</li>
+  <li><b>Ctrl+Left/Right</b> — previous/next OT (multi-OT mode)</li>
+</ul>
+
+<h2>Display Features</h2>
+<ul>
+  <li><b>Convex hull</b> — toggle hull overlay</li>
+  <li><b>Onion layers</b> — nested convex hulls</li>
+  <li><b>Hide incident lines</b> — hide connecting lines through points</li>
+  <li><b>Lock OT</b> — prevent accidental OT changes while dragging</li>
+</ul>
+
+<h2>Properties Panel</h2>
+<p>Live-computed combinatorial properties (select via Properties button):</p>
+<ul>
+  <li>Crossing number, rectilinear crossing number</li>
+  <li>Convex position count, halving lines</li>
+  <li>Empty triangles, empty quadrilaterals</li>
+  <li>Convex k-gons for various k</li>
+  <li>And many more (see Properties dialog)</li>
+</ul>
+
+<h2>Optimization Modes</h2>
+<ul>
+  <li><b>Minimize coordinates</b> — reduce coordinate size (move-to-even / halve)</li>
+  <li><b>Beautify coordinates</b> — gradient descent or Nelder-Mead beautification</li>
+  <li><b>Property min/max</b> — local search to optimize a chosen property</li>
+</ul>
+
+<h2>Navigation (Multi-OT)</h2>
+<ul>
+  <li><b>Ctrl+Left</b> — previous order type</li>
+  <li><b>Ctrl+Right</b> — next order type</li>
+  <li>Status bar shows current index and total count</li>
+</ul>
+
+<h2>File Formats</h2>
+<ul>
+  <li><b>.sl</b> — SmallLambda (compact binary, abstract only)</li>
+  <li><b>.bl</b> — BigLambda (variable-width binary, abstract only)</li>
+  <li><b>.pts</b> — PointSet (integer coordinates)</li>
+  <li><b>.fm</b> — FelsnerMatrix (crossing-family matrix)</li>
+  <li><b>.json</b> — JSON point sets</li>
+</ul>
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers

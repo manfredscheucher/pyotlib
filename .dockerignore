@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+pyotlib2-doc
+.claude
+*.egg-info
+build
+dist
