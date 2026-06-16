@@ -99,6 +99,30 @@ def download(url: str, dest: Path, expected_size: int | None = None) -> bool:
         return False
 
 
+LICENSE_NOTICE = """\
+================================================================================
+  Graz Order Type Database — License Terms
+================================================================================
+
+  Usage of the data base is free for non-commercial, non-governmental
+  and non-military purposes.
+
+  See: http://www.ist.tugraz.at/staff/aichholzer/research/rp/triangulations/ordertypes/readme.txt
+================================================================================
+"""
+
+
+def confirm_license() -> bool:
+    """Display the OTDB license terms and require explicit 'yes' confirmation."""
+    print(LICENSE_NOTICE)
+    try:
+        answer = input("Do you accept these terms? Type 'yes' to proceed: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer.lower() == "yes"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -106,7 +130,14 @@ def main():
                         help="also download the large n=10 otypes file")
     parser.add_argument("--properties", action="store_true",
                         help="also download property files (crossn, extrem, kgons, ekgons, crossf)")
+    parser.add_argument("--accept-license", action="store_true",
+                        help="accept the OTDB license terms non-interactively")
     args = parser.parse_args()
+
+    if not args.accept_license:
+        if not confirm_license():
+            print("Download aborted.")
+            sys.exit(1)
 
     n_max_otypes = 10 if args.also10 else 9
     n_max_props  = 9  # no property files for n=10 on server
